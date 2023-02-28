@@ -162,7 +162,7 @@ func queryGabi(url, query, token string) (models.QueryResponse, error) {
 	}
 
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusBadRequest {
 		return models.QueryResponse{}, fmt.Errorf("http status: %s", resp.Status)
 	}
 
