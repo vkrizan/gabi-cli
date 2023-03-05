@@ -1,11 +1,9 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -25,8 +23,13 @@ import (
 	routev1 "github.com/openshift/api/route/v1"
 	routeclientv1 "github.com/openshift/client-go/route/clientset/versioned/typed/route/v1"
 
+	"github.com/c-bata/go-prompt"
 	"github.com/jedib0t/go-pretty/v6/table"
 )
+
+var bearerToken = ""
+var gabiUrl = ""
+var query = ""
 
 func main() {
 	var kubeconfigPath *string
@@ -49,7 +52,7 @@ func main() {
 	kubeconfig, config := setupK8s(*kubeconfigPath)
 	setDefaultNamespace(kubeconfig, namespace)
 
-	bearerToken := config.BearerToken
+	bearerToken = config.BearerToken
 	if bearerToken == "" {
 		log.Fatalf("no Bearer Token please use `oc login`")
 	}
@@ -65,30 +68,34 @@ func main() {
 		}
 	}
 
-	gabiUrl := gabiUrlFromRoute(gabiRoute)
+	gabiUrl = gabiUrlFromRoute(gabiRoute)
 	log.Printf("Using Gabi %s", gabiUrl)
 
-	for {
-		reader := bufio.NewReader(os.Stdin)
-		fmt.Print("> ")
-		query, err := reader.ReadString(';')
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			log.Fatal(err)
-		}
-		result, err := queryGabi(gabiUrl, query, bearerToken)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %s\n", err)
-		} else if result.Error != "" {
-			fmt.Fprintf(os.Stderr, "Error: %s\n", result.Error)
-		} else {
-			//fmt.Println(result)
-			formatResult(result, os.Stdout)
-		}
-	}
+	p := prompt.New(executor, completer)
+	p.Run()
+}
 
+func executor(input string) {
+	query = fmt.Sprintf("%s%s", query, input)
+	if !strings.HasSuffix(query, ";") {
+		query = fmt.Sprintf("%s\n", query)
+		return
+	}
+	query = strings.TrimSpace(query)
+	result, err := queryGabi(gabiUrl, query, bearerToken)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+	} else if result.Error != "" {
+		fmt.Fprintf(os.Stderr, "Error: %s\n", result.Error)
+	} else {
+		//fmt.Println(result)
+		formatResult(result, os.Stdout)
+	}
+	query = ""
+}
+
+func completer(in prompt.Document) []prompt.Suggest {
+	return []prompt.Suggest{}
 }
 
 func setupK8s(kubeconfigPath string) (clientcmd.ClientConfig, *restclient.Config) {
