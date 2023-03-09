@@ -27,13 +27,8 @@ import (
 	"github.com/jedib0t/go-pretty/v6/table"
 )
 
-var bearerToken = ""
-var gabiUrl = ""
-var query = ""
-
 func main() {
 	var kubeconfigPath *string
-	// var err error
 
 	if home := homedir.HomeDir(); home != "" {
 		kubeconfigPath = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
@@ -52,7 +47,7 @@ func main() {
 	kubeconfig, config := setupK8s(*kubeconfigPath)
 	setDefaultNamespace(kubeconfig, namespace)
 
-	bearerToken = config.BearerToken
+	bearerToken := config.BearerToken
 	if bearerToken == "" {
 		log.Fatalf("no Bearer Token please use `oc login`")
 	}
@@ -68,30 +63,28 @@ func main() {
 		}
 	}
 
-	gabiUrl = gabiUrlFromRoute(gabiRoute)
+	gabiUrl := gabiUrlFromRoute(gabiRoute)
 	log.Printf("Using Gabi %s", gabiUrl)
 
-	p := prompt.New(executor, completer)
+	var query string
+	p := prompt.New(func(input string) {
+		query = fmt.Sprintf("%s%s", query, input)
+		if !strings.HasSuffix(query, ";") {
+			query = fmt.Sprintf("%s\n", query)
+			return
+		}
+		query = strings.TrimSpace(query)
+		result, err := queryGabi(gabiUrl, query, bearerToken)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+		} else if result.Error != "" {
+			fmt.Fprintf(os.Stderr, "Error: %s\n", result.Error)
+		} else {
+			formatResult(result, os.Stdout)
+		}
+		query = ""
+	}, completer)
 	p.Run()
-}
-
-func executor(input string) {
-	query = fmt.Sprintf("%s%s", query, input)
-	if !strings.HasSuffix(query, ";") {
-		query = fmt.Sprintf("%s\n", query)
-		return
-	}
-	query = strings.TrimSpace(query)
-	result, err := queryGabi(gabiUrl, query, bearerToken)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
-	} else if result.Error != "" {
-		fmt.Fprintf(os.Stderr, "Error: %s\n", result.Error)
-	} else {
-		//fmt.Println(result)
-		formatResult(result, os.Stdout)
-	}
-	query = ""
 }
 
 func completer(in prompt.Document) []prompt.Suggest {
