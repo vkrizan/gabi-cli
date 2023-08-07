@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -36,6 +37,7 @@ func main() {
 		kubeconfigPath = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
 	}
 	showHelp := flag.Bool("h", false, "Shows help")
+	quiet := flag.Bool("q", false, "Suppress logging messages")
 	namespace := flag.String("n", "", "Namespace (defaults to current context)")
 	flag.Parse()
 
@@ -44,6 +46,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	if *quiet {
+		log.SetOutput(ioutil.Discard)
+	}
 	kubeconfig, config := setupK8s(*kubeconfigPath)
 	setDefaultNamespace(kubeconfig, namespace)
 
