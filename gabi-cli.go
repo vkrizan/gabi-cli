@@ -68,23 +68,27 @@ func main() {
 
 	var query string
 	p := prompt.New(func(input string) {
-		query = fmt.Sprintf("%s%s", query, input)
-		if !strings.HasSuffix(query, ";") {
-			query = fmt.Sprintf("%s\n", query)
-			return
-		}
-		query = strings.TrimSpace(query)
-		result, err := queryGabi(gabiUrl, query, bearerToken)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %s\n", err)
-		} else if result.Error != "" {
-			fmt.Fprintf(os.Stderr, "Error: %s\n", result.Error)
-		} else {
-			formatResult(result, os.Stdout)
-		}
-		query = ""
+		runQuery(gabiUrl, bearerToken, input, &query)
 	}, completer)
 	p.Run()
+}
+
+func runQuery(gabiUrl, bearerToken, input string, query *string) {
+	*query = fmt.Sprintf("%s%s", *query, input)
+	if !strings.HasSuffix(*query, ";") {
+		*query = fmt.Sprintf("%s\n", *query)
+		return
+	}
+	*query = strings.TrimSpace(*query)
+	result, err := queryGabi(gabiUrl, *query, bearerToken)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+	} else if result.Error != "" {
+		fmt.Fprintf(os.Stderr, "Error: %s\n", result.Error)
+	} else {
+		formatResult(result, os.Stdout)
+	}
+	*query = ""
 }
 
 func completer(in prompt.Document) []prompt.Suggest {
