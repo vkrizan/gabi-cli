@@ -67,6 +67,12 @@ func main() {
 	log.Printf("Using Gabi %s", gabiUrl)
 
 	var query string
+	if len(flag.Args()) > 0 {
+		// if there's a query on commandline, just run it
+		query = strings.Join(flag.Args(), " ")
+		runQuery(gabiUrl, bearerToken, query, "")
+		return
+	}
 	p := prompt.New(func(input string) {
 		runQuery(gabiUrl, bearerToken, input, &query)
 	}, completer)
