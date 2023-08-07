@@ -75,7 +75,7 @@ func main() {
 	if len(flag.Args()) > 0 {
 		// if there's a query on commandline, just run it
 		query = strings.Join(flag.Args(), " ")
-		runQuery(gabiUrl, bearerToken, query, "")
+		runQuery(gabiUrl, bearerToken, "", &query)
 		return
 	}
 	p := prompt.New(func(input string) {
