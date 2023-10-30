@@ -9,7 +9,7 @@ You also need to be connected to the Openshift project running the database cont
 ## Installation
 
 You can download and install the latest release of the Gabi CLI with this command:  
-`go install github.com/vkrizan/gabi-cli.git@latest`
+`go install github.com/vkrizan/gabi-cli@latest`
 
 After which you should be able to run it with `gabi-cli`.
 
