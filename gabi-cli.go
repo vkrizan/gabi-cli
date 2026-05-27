@@ -28,6 +28,8 @@ import (
 	"github.com/jedib0t/go-pretty/v6/table"
 )
 
+var expandedDisplay bool
+
 func main() {
 	var kubeconfigPath *string
 
@@ -86,6 +88,15 @@ func main() {
 
 func runQuery(gabiUrl, bearerToken, input string, query *string) {
 	*query = fmt.Sprintf("%s%s", *query, input)
+
+	// Meta-commands start with \ and don't require a semicolon.
+	trimmed := strings.TrimSpace(*query)
+	if strings.HasPrefix(trimmed, "\\") {
+		*query = ""
+		handleMetaCommand(trimmed)
+		return
+	}
+
 	if !strings.HasSuffix(*query, ";") {
 		*query = fmt.Sprintf("%s\n", *query)
 		return
@@ -100,6 +111,39 @@ func runQuery(gabiUrl, bearerToken, input string, query *string) {
 		formatResult(result, os.Stdout)
 	}
 	*query = ""
+}
+
+// handleMetaCommand processes backslash commands entered by the user.
+// Supported commands:
+//
+//	\x [on|off|toggle]  — toggle expanded (vertical) display mode
+func handleMetaCommand(cmd string) {
+	parts := strings.Fields(cmd)
+	switch parts[0] {
+	case "\\x":
+		arg := "toggle"
+		if len(parts) > 1 {
+			arg = parts[1]
+		}
+		switch arg {
+		case "on":
+			expandedDisplay = true
+		case "off":
+			expandedDisplay = false
+		case "toggle":
+			expandedDisplay = !expandedDisplay
+		default:
+			fmt.Fprintf(os.Stderr, "\\x: unknown argument %q\n", arg)
+			return
+		}
+		state := "off"
+		if expandedDisplay {
+			state = "on"
+		}
+		fmt.Printf("Expanded display is %s.\n", state)
+	default:
+		fmt.Fprintf(os.Stderr, "unknown command: %s\n", parts[0])
+	}
 }
 
 func completer(in prompt.Document) []prompt.Suggest {
@@ -190,6 +234,10 @@ func queryGabi(url, query, token string) (models.QueryResponse, error) {
 }
 
 func formatResult(r models.QueryResponse, out io.Writer) {
+	if expandedDisplay {
+		formatResultExpanded(r, out)
+		return
+	}
 	t := table.NewWriter()
 	t.SetOutputMirror(out)
 	if len(r.Result) > 0 {
@@ -202,6 +250,39 @@ func formatResult(r models.QueryResponse, out io.Writer) {
 	}
 	t.Style().Options.DrawBorder = false
 	t.Render()
+}
+
+// formatResultExpanded renders each row as a vertical key/value list,
+// matching the output style of psql's \x on mode.
+func formatResultExpanded(r models.QueryResponse, out io.Writer) {
+	if len(r.Result) < 1 {
+		return
+	}
+	headers := r.Result[0]
+
+	maxColLen := 0
+	for _, h := range headers {
+		if len(h) > maxColLen {
+			maxColLen = len(h)
+		}
+	}
+
+	for i, row := range r.Result[1:] {
+		// Separator: "-[ RECORD N ]" padded with dashes to at least cover the column width.
+		sep := fmt.Sprintf("-[ RECORD %d ]", i+1)
+		if pad := maxColLen + 2 - len(sep); pad > 0 {
+			sep += strings.Repeat("-", pad)
+		}
+		fmt.Fprintln(out, sep)
+
+		for j, val := range row {
+			col := ""
+			if j < len(headers) {
+				col = headers[j]
+			}
+			fmt.Fprintf(out, "%-*s | %s\n", maxColLen, col, val)
+		}
+	}
 }
 
 func convertToRow(raw []string) (r table.Row) {
