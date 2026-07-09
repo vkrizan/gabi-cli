@@ -95,7 +95,7 @@ func main() {
 	var query string
 	if len(flag.Args()) > 0 {
 		query = strings.Join(flag.Args(), " ")
-		runQuery(gabiUrl, bearerToken, "", &query, qh, *fancy, displayMode)
+		runQuery(gabiUrl, bearerToken, "", &query, qh, *fancy, displayMode, os.Stdout)
 		return
 	}
 
@@ -149,7 +149,9 @@ func main() {
 				return
 			}
 			query = ""
-			runQuery(gabiUrl, bearerToken, edited, &query, qh, *fancy, displayMode)
+			var buf bytes.Buffer
+			runQuery(gabiUrl, bearerToken, edited, &query, qh, *fancy, displayMode, &buf)
+			pageOutput(buf.String())
 			return
 		}
 		if trimmed == `\x` {
@@ -162,7 +164,28 @@ func main() {
 			}
 			return
 		}
-		runQuery(gabiUrl, bearerToken, input, &query, qh, *fancy, displayMode)
+		if trimmed == `\d` {
+			var buf bytes.Buffer
+			runBuiltinQuery(gabiUrl, bearerToken, sqlListSchema, &buf, *fancy, displayMode)
+			pageOutput(buf.String())
+			return
+		}
+		if strings.HasPrefix(trimmed, `\d `) {
+			tableName := strings.TrimSpace(trimmed[3:])
+			var buf bytes.Buffer
+			describeTable(gabiUrl, bearerToken, tableName, &buf, *fancy, displayMode)
+			pageOutput(buf.String())
+			return
+		}
+		if trimmed == `\h` || trimmed == `\help` || trimmed == `help` {
+			printHelp()
+			return
+		}
+		{
+			var buf bytes.Buffer
+			runQuery(gabiUrl, bearerToken, input, &query, qh, *fancy, displayMode, &buf)
+			pageOutput(buf.String())
+		}
 	}, opts...)
 	p.Run()
 }
@@ -278,7 +301,139 @@ func openEditor(content string) (string, error) {
 	return strings.TrimRight(string(result), "\n"), nil
 }
 
-func runQuery(gabiUrl, bearerToken, input string, query *string, qh *QueryHistory, fancy bool, displayMode string) {
+func printHelp() {
+	fmt.Print(`Available commands:
+  \d              list tables, views, and sequences
+  \d <table>      describe table (columns, indexes, references)
+  \e              open last query in $EDITOR
+  \x              toggle expanded display mode
+  \h, \help       show this help
+  Ctrl+O          open current buffer (or last query) in $EDITOR
+  Ctrl+D          exit
+`)
+}
+
+const sqlListSchema = `SELECT n.nspname AS schema, c.relname AS name,
+  CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view'
+    WHEN 'm' THEN 'materialized view' WHEN 'S' THEN 'sequence'
+    WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table'
+  END AS type,
+  pg_catalog.pg_get_userbyid(c.relowner) AS owner
+FROM pg_catalog.pg_class c
+LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+WHERE c.relkind IN ('r','p','v','m','S','f')
+  AND n.nspname <> 'pg_catalog'
+  AND n.nspname <> 'information_schema'
+  AND n.nspname !~ '^pg_toast'
+  AND pg_catalog.pg_table_is_visible(c.oid)
+ORDER BY 1, 2;`
+
+const sqlDescribeColumns = `SELECT a.attname AS column,
+  pg_catalog.format_type(a.atttypid, a.atttypmod) AS type,
+  CASE WHEN a.attnotnull THEN 'not null' ELSE '' END AS nullable,
+  (SELECT pg_catalog.pg_get_expr(d.adbin, d.adrelid, true)
+   FROM pg_catalog.pg_attrdef d
+   WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum AND a.atthasdef) AS default
+FROM pg_catalog.pg_attribute a
+WHERE a.attrelid = '%s'::regclass AND a.attnum > 0 AND NOT a.attisdropped
+ORDER BY a.attnum;`
+
+const sqlDescribeIndexes = `SELECT c2.relname AS name,
+  pg_catalog.pg_get_constraintdef(con.oid, true) AS constraint,
+  pg_catalog.pg_get_indexdef(i.indexrelid, 0, true) AS definition
+FROM pg_catalog.pg_class c, pg_catalog.pg_class c2, pg_catalog.pg_index i
+LEFT JOIN pg_catalog.pg_constraint con
+  ON (conrelid = i.indrelid AND conindid = i.indexrelid AND contype IN ('p','u','x'))
+WHERE c.oid = '%s'::regclass AND c.oid = i.indrelid AND i.indexrelid = c2.oid
+ORDER BY i.indisprimary DESC, c2.relname;`
+
+const sqlDescribeReferences = `SELECT conname AS name, conrelid::regclass AS table,
+  pg_catalog.pg_get_constraintdef(oid, true) AS definition
+FROM pg_catalog.pg_constraint
+WHERE confrelid = '%s'::regclass AND contype = 'f' AND conparentid = 0
+ORDER BY conname;`
+
+func getPager() string {
+	if p := os.Getenv("PAGER"); p != "" {
+		return p
+	}
+	return "less -R"
+}
+
+const defaultTerminalHeight = 24
+
+func getTerminalHeight() int {
+	_, h, err := term.GetSize(int(os.Stdin.Fd()))
+	if err != nil || h <= 0 {
+		return defaultTerminalHeight
+	}
+	return h
+}
+
+func pageOutput(content string) {
+	if content == "" {
+		return
+	}
+	termWidth := getTerminalWidth()
+	visualLines := 0
+	for _, line := range strings.Split(content, "\n") {
+		stripped := text.StripEscape(line)
+		w := len([]rune(stripped))
+		if w <= termWidth {
+			visualLines++
+		} else {
+			visualLines += (w + termWidth - 1) / termWidth
+		}
+	}
+	if visualLines < getTerminalHeight() {
+		fmt.Print(content)
+		return
+	}
+	pager := getPager()
+	args, err := shlex.Split(pager)
+	if err != nil || len(args) == 0 {
+		fmt.Print(content)
+		return
+	}
+	cmd := exec.Command(args[0], args[1:]...)
+	cmd.Stdin = strings.NewReader(content)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Print(content)
+	}
+}
+
+func runBuiltinQuery(gabiUrl, bearerToken, sql string, out io.Writer, fancy bool, displayMode string) error {
+	result, err := queryGabi(gabiUrl, sql, bearerToken)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+		return err
+	}
+	if result.Error != "" {
+		fmt.Fprintf(os.Stderr, "Error: %s\n", result.Error)
+		return fmt.Errorf("%s", result.Error)
+	}
+	formatResult(result, out, fancy, displayMode)
+	return nil
+}
+
+func describeTable(gabiUrl, bearerToken, tableName string, out io.Writer, fancy bool, displayMode string) {
+	fmt.Fprintf(out, "Columns:\n")
+	if err := runBuiltinQuery(gabiUrl, bearerToken, fmt.Sprintf(sqlDescribeColumns, tableName), out, fancy, displayMode); err != nil {
+		return
+	}
+	fmt.Fprintln(out)
+
+	fmt.Fprintf(out, "Indexes:\n")
+	runBuiltinQuery(gabiUrl, bearerToken, fmt.Sprintf(sqlDescribeIndexes, tableName), out, fancy, displayMode)
+	fmt.Fprintln(out)
+
+	fmt.Fprintf(out, "Referenced by:\n")
+	runBuiltinQuery(gabiUrl, bearerToken, fmt.Sprintf(sqlDescribeReferences, tableName), out, fancy, displayMode)
+}
+
+func runQuery(gabiUrl, bearerToken, input string, query *string, qh *QueryHistory, fancy bool, displayMode string, out io.Writer) {
 	*query = fmt.Sprintf("%s%s", *query, input)
 	if !strings.HasSuffix(*query, ";") {
 		*query = fmt.Sprintf("%s\n", *query)
@@ -294,7 +449,7 @@ func runQuery(gabiUrl, bearerToken, input string, query *string, qh *QueryHistor
 	} else if result.Error != "" {
 		fmt.Fprintf(os.Stderr, "Error: %s\n", result.Error)
 	} else {
-		formatResult(result, os.Stdout, fancy, displayMode)
+		formatResult(result, out, fancy, displayMode)
 	}
 	*query = ""
 }

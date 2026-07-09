@@ -43,8 +43,11 @@ Some examples:
 
 | Command | Description |
 |---------|-------------|
+| `\d` | List tables, views, and sequences |
+| `\d <table>` | Describe table (columns, indexes, references) |
 | `\e` | Open last query in `$VISUAL`/`$EDITOR`/`vi` |
 | `\x` | Toggle expanded display mode |
+| `\h`, `\help` | Show help |
 | `Ctrl+O` | Open current buffer (or last query) in editor |
 | `Ctrl+L` | Clear the screen |
 | `Ctrl+D` | Exit |
