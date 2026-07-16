@@ -46,6 +46,7 @@ func main() {
 	fancy := flag.Bool("fancy", false, "Use rounded table style with colored header")
 	display := flag.String("display", "auto", "Display mode: auto, table, or expanded")
 	namespace := flag.String("n", "", "Namespace (defaults to current context)")
+	routeName := flag.String("r", "", "GABI route name when multiple routes exist")
 	flag.Parse()
 
 	if *showHelp {
@@ -65,7 +66,7 @@ func main() {
 	}
 
 	log.Printf("Looking up Gabi from namespace %s, cluster %s", *namespace, config.Host)
-	gabiRoute, err := getGabiRoute(config, *namespace)
+	gabiRoute, err := getGabiRoute(config, *namespace, *routeName)
 
 	if err != nil {
 		if apierrors.IsUnauthorized(err) {
@@ -76,7 +77,7 @@ func main() {
 	}
 
 	gabiUrl := gabiUrlFromRoute(gabiRoute)
-	log.Printf("Using Gabi %s", gabiUrl)
+	log.Printf("Using Gabi route %s (%s)", gabiRoute.Name, gabiUrl)
 
 	dataDir := ""
 	if d := os.Getenv("XDG_DATA_HOME"); d != "" {
@@ -477,25 +478,62 @@ func setDefaultNamespace(kubeconfig clientcmd.ClientConfig, namespace *string) {
 	}
 }
 
-func getGabiRoute(config *restclient.Config, namespace string) (gabi routev1.Route, err error) {
+func getGabiRoute(config *restclient.Config, namespace, routeName string) (gabi routev1.Route, err error) {
 	clientset, err := routeclientv1.NewForConfig(config)
 	if err != nil {
 		return
 	}
 	routes, err := clientset.Routes(namespace).List(context.TODO(), metav1.ListOptions{})
-
 	if err != nil {
 		return
 	}
 
+	var gabiRoutes []routev1.Route
 	for _, route := range routes.Items {
 		if strings.HasPrefix(route.Name, "gabi-") {
-			gabi = route
-			return
+			gabiRoutes = append(gabiRoutes, route)
 		}
 	}
-	err = fmt.Errorf("no gabi route found in namespace %s", namespace)
-	return
+	if len(gabiRoutes) == 0 {
+		err = fmt.Errorf("no gabi route found in namespace %s", namespace)
+		return
+	}
+
+	matched, err := selectGabiRoute(gabiRoutes, routeName)
+	if err != nil {
+		return
+	}
+	return matched, nil
+}
+
+func selectGabiRoute(routes []routev1.Route, routeName string) (routev1.Route, error) {
+	if routeName == "" {
+		if len(routes) == 1 {
+			return routes[0], nil
+		}
+		return routev1.Route{}, fmt.Errorf(
+			"multiple gabi routes found; use -r to select one:\n%s",
+			formatRouteChoices(routes),
+		)
+	}
+
+	for _, route := range routes {
+		if route.Name == routeName {
+			return route, nil
+		}
+	}
+	return routev1.Route{}, fmt.Errorf(
+		"no gabi route named %q; available routes:\n%s",
+		routeName, formatRouteChoices(routes),
+	)
+}
+
+func formatRouteChoices(routes []routev1.Route) string {
+	var b strings.Builder
+	for _, route := range routes {
+		fmt.Fprintf(&b, "  - %s (%s)\n", route.Name, gabiUrlFromRoute(route))
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func gabiUrlFromRoute(route routev1.Route) string {

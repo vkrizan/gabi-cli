@@ -23,6 +23,8 @@ Usage of gabi-cli:
         (optional) absolute path to the kubeconfig file (default "~/.kube/config")
   -n string
         Namespace (defaults to current context)
+  -r string
+        GABI route name when multiple routes exist
   -q    Suppress logging messages
   -fancy
         Use rounded table style with colored header
@@ -31,6 +33,12 @@ Usage of gabi-cli:
 ```
 
 If your system is correctly configured (logged into Openshift and a GABI compliant project selected), then running `gabi-cli` should report the namespace, cluster, and GABI url you have accessed and drop you into a database query prompt.
+
+When a namespace has more than one GABI route (for example live and restore databases), `gabi-cli` lists the options and requires `-r` with the exact route name:
+
+```bash
+gabi-cli -r gabi-myapp-restore
+```
 
 In this prompt you may interact with the database via SQL query strings.
 
