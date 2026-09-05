@@ -29,7 +29,7 @@ Usage of gabi-cli:
   -fancy
         Use rounded table style with colored header
   -display string
-        Display mode: auto, table, or expanded (default "auto")
+        Display mode: auto, table, expanded, or raw (default "auto")
 ```
 
 If your system is correctly configured (logged into Openshift and a GABI compliant project selected), then running `gabi-cli` should report the namespace, cluster, and GABI url you have accessed and drop you into a database query prompt.
@@ -46,6 +46,13 @@ Some examples:
 `SELECT * FROM pg_catalog.pg_tables;` -> List all tables for a Postgres database  
 `SELECT COUNT(*) FROM <table>;` -> Count the number of rows in table \<table\>  
 `SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '<table>';` -> List column names and types for \<table\> in a Postgres database.
+
+Use `-display raw` to write data rows without headers or table formatting. This is
+useful for piping `EXPLAIN (FORMAT JSON)` directly into a file or another tool:
+
+```shell
+gabi-cli -q -display raw "EXPLAIN (FORMAT JSON) SELECT 1;" > plan.json
+```
 
 ### Interactive commands
 

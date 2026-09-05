@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/app-sre/gabi/pkg/models"
 	routev1 "github.com/openshift/api/route/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -69,4 +70,48 @@ func TestSelectGabiRoute(t *testing.T) {
 			t.Fatalf("expected available routes in error, got: %v", err)
 		}
 	})
+}
+
+func TestFormatResultRaw(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		result [][]string
+		want   string
+	}{
+		{name: "no result rows"},
+		{
+			name:   "header only",
+			result: [][]string{{"QUERY PLAN"}},
+		},
+		{
+			name:   "one cell JSON result",
+			result: [][]string{{"QUERY PLAN"}, {"[{\"Plan\": {\"Node Type\": \"Result\"}}]"}},
+			want:   "[{\"Plan\": {\"Node Type\": \"Result\"}}]\n",
+		},
+		{
+			name:   "multi-line cell is preserved",
+			result: [][]string{{"QUERY PLAN"}, {"[\n  {\"Plan\": {}\n]"}},
+			want:   "[\n  {\"Plan\": {}\n]\n",
+		},
+		{
+			name:   "multiple rows and columns",
+			result: [][]string{{"schema", "name"}, {"public", "users"}, {"audit", "events"}},
+			want:   "public\tusers\naudit\tevents\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var out strings.Builder
+			formatResult(models.QueryResponse{Result: tt.result}, &out, false, "raw")
+
+			if got := out.String(); got != tt.want {
+				t.Errorf("formatResult(..., raw) = %q, want %q", got, tt.want)
+			}
+		})
+	}
 }
