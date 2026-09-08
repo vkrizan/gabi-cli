@@ -44,7 +44,7 @@ func main() {
 	showHelp := flag.Bool("h", false, "Shows help")
 	quiet := flag.Bool("q", false, "Suppress logging messages")
 	fancy := flag.Bool("fancy", false, "Use rounded table style with colored header")
-	display := flag.String("display", "auto", "Display mode: auto, table, or expanded")
+	display := flag.String("display", "auto", "Display mode: auto, table, expanded, or raw")
 	namespace := flag.String("n", "", "Namespace (defaults to current context)")
 	routeName := flag.String("r", "", "GABI route name when multiple routes exist")
 	flag.Parse()
@@ -588,6 +588,11 @@ func formatResult(r models.QueryResponse, out io.Writer, fancy bool, displayMode
 		return
 	}
 
+	if displayMode == "raw" {
+		formatRaw(r, out)
+		return
+	}
+
 	if displayMode == "expanded" {
 		formatExpanded(r, out, fancy)
 		return
@@ -610,6 +615,17 @@ func formatResult(r models.QueryResponse, out io.Writer, fancy bool, displayMode
 
 	rendered := renderTable(r, fancy)
 	fmt.Fprintln(out, rendered)
+}
+
+// formatRaw prints data cells verbatim, without headers or table formatting.
+// Data rows print one per line; multiple columns are tab-separated.
+func formatRaw(r models.QueryResponse, out io.Writer) {
+	if len(r.Result) < 2 {
+		return
+	}
+	for _, row := range r.Result[1:] {
+		fmt.Fprintln(out, strings.Join(row, "\t"))
+	}
 }
 
 func renderTable(r models.QueryResponse, fancy bool) string {
