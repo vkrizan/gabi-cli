@@ -1,12 +1,15 @@
 package main
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/app-sre/gabi/pkg/models"
 	routev1 "github.com/openshift/api/route/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 )
 
 func testRoute(name, host string) routev1.Route {
@@ -70,6 +73,80 @@ func TestSelectGabiRoute(t *testing.T) {
 			t.Fatalf("expected available routes in error, got: %v", err)
 		}
 	})
+}
+
+func TestNewKubeConfigContext(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config")
+	config := clientcmdapi.Config{
+		Clusters: map[string]*clientcmdapi.Cluster{
+			"default-cluster":  {Server: "https://default.example.com"},
+			"selected-cluster": {Server: "https://selected.example.com"},
+		},
+		AuthInfos: map[string]*clientcmdapi.AuthInfo{
+			"default-user":  {Token: "default-token"},
+			"selected-user": {Token: "selected-token"},
+		},
+		Contexts: map[string]*clientcmdapi.Context{
+			"default-context": {
+				Cluster:   "default-cluster",
+				AuthInfo:  "default-user",
+				Namespace: "default-namespace",
+			},
+			"selected-context": {
+				Cluster:   "selected-cluster",
+				AuthInfo:  "selected-user",
+				Namespace: "selected-namespace",
+			},
+		},
+		CurrentContext: "default-context",
+	}
+	if err := clientcmd.WriteToFile(config, configPath); err != nil {
+		t.Fatalf("failed to write test kubeconfig: %v", err)
+	}
+
+	tests := []struct {
+		name      string
+		context   string
+		host      string
+		token     string
+		namespace string
+	}{
+		{
+			name:      "uses current context by default",
+			host:      "https://default.example.com",
+			token:     "default-token",
+			namespace: "default-namespace",
+		},
+		{
+			name:      "uses explicitly selected context",
+			context:   "selected-context",
+			host:      "https://selected.example.com",
+			token:     "selected-token",
+			namespace: "selected-namespace",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kubeconfig := newKubeConfig(configPath, tt.context)
+			config, err := kubeconfig.ClientConfig()
+			if err != nil {
+				t.Fatalf("failed to load client config: %v", err)
+			}
+			if config.Host != tt.host {
+				t.Errorf("host = %q, want %q", config.Host, tt.host)
+			}
+			if config.BearerToken != tt.token {
+				t.Errorf("bearer token = %q, want %q", config.BearerToken, tt.token)
+			}
+			namespace, _, err := kubeconfig.Namespace()
+			if err != nil {
+				t.Fatalf("failed to load namespace: %v", err)
+			}
+			if namespace != tt.namespace {
+				t.Errorf("namespace = %q, want %q", namespace, tt.namespace)
+			}
+		})
+	}
 }
 
 func TestFormatResultRaw(t *testing.T) {
