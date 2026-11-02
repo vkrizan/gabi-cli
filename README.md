@@ -18,6 +18,8 @@ If you receive a `command not found` error, make sure that your go bin directory
 ## Usage
 ```
 Usage of gabi-cli:
+  -context string
+        Kubernetes context (defaults to current context)
   -h    Shows help
   -kubeconfig string
         (optional) absolute path to the kubeconfig file (default "~/.kube/config")
@@ -38,6 +40,14 @@ When a namespace has more than one GABI route (for example live and restore data
 
 ```bash
 gabi-cli -r gabi-myapp-restore
+```
+
+Use `-context` to select a context from the default kubeconfig or the file
+provided with `-kubeconfig`:
+
+```bash
+gabi-cli -context my-cluster
+gabi-cli -kubeconfig /path/to/config -context my-cluster
 ```
 
 In this prompt you may interact with the database via SQL query strings.

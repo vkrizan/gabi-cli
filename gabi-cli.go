@@ -41,6 +41,7 @@ func main() {
 	} else {
 		kubeconfigPath = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
 	}
+	contextName := flag.String("context", "", "Kubernetes context (defaults to current context)")
 	showHelp := flag.Bool("h", false, "Shows help")
 	quiet := flag.Bool("q", false, "Suppress logging messages")
 	fancy := flag.Bool("fancy", false, "Use rounded table style with colored header")
@@ -57,7 +58,7 @@ func main() {
 	if *quiet {
 		log.SetOutput(ioutil.Discard)
 	}
-	kubeconfig, config := setupK8s(*kubeconfigPath)
+	kubeconfig, config := setupK8s(*kubeconfigPath, *contextName)
 	setDefaultNamespace(kubeconfig, namespace)
 
 	bearerToken := config.BearerToken
@@ -455,17 +456,21 @@ func runQuery(gabiUrl, bearerToken, input string, query *string, qh *QueryHistor
 	*query = ""
 }
 
-func setupK8s(kubeconfigPath string) (clientcmd.ClientConfig, *restclient.Config) {
-	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-	loadingRules.ExplicitPath = kubeconfigPath
-	kubeconfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, &clientcmd.ConfigOverrides{})
+func setupK8s(kubeconfigPath, contextName string) (clientcmd.ClientConfig, *restclient.Config) {
+	kubeconfig := newKubeConfig(kubeconfigPath, contextName)
 
-	// use the current context in kubeconfig
 	clientconfig, err := kubeconfig.ClientConfig()
 	if err != nil {
 		log.Fatal(err.Error())
 	}
 	return kubeconfig, clientconfig
+}
+
+func newKubeConfig(kubeconfigPath, contextName string) clientcmd.ClientConfig {
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	loadingRules.ExplicitPath = kubeconfigPath
+	configOverrides := &clientcmd.ConfigOverrides{CurrentContext: contextName}
+	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
 }
 
 func setDefaultNamespace(kubeconfig clientcmd.ClientConfig, namespace *string) {
